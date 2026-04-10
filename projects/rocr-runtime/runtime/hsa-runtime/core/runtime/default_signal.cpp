@@ -41,6 +41,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include "core/inc/default_signal.h"
+#include "core/util/signal_recovery_env.h"
 
 #if defined(__i386__) || defined(__x86_64__)
 #include <mwaitxintrin.h>
@@ -88,6 +89,7 @@ hsa_signal_value_t BusyWaitSignal::WaitRelaxed(hsa_signal_condition_t condition,
 
   const timer::fast_clock::time_point start_time = timer::fast_clock::now();
   const timer::fast_clock::duration fast_timeout = timer::GetFastTimeout(timeout);
+  const uint32_t max_sig_sec = SignalRecoveryEnv::MaxSignalWaitSec();
 
   while (true) {
     if (!IsValid()) return 0;
@@ -103,6 +105,16 @@ hsa_signal_value_t BusyWaitSignal::WaitRelaxed(hsa_signal_condition_t condition,
     }
 
     timer::CheckAbortTimeout(start_time, signal_abort_timeout);
+
+    if (ShouldForceUnblockSignalWait(start_time, max_sig_sec)) {
+      if (!CheckSignalCondition(value, condition, compare_value)) {
+        int64_t forced =
+            RecoveryValueToSatisfyWait(condition, compare_value, value);
+        atomic::Store(&signal_.value, forced, std::memory_order_relaxed);
+        value = forced;
+      }
+      return value;
+    }
 
     if (g_use_mwaitx) {
       // Use timer-enabled mwaitx for busy waiting

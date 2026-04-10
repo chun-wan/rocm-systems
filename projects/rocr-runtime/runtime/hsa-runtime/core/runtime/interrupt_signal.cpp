@@ -43,6 +43,7 @@
 #include "core/inc/interrupt_signal.h"
 #include "core/inc/runtime.h"
 #include "core/util/locks.h"
+#include "core/util/signal_recovery_env.h"
 
 namespace rocr {
 namespace core {
@@ -153,6 +154,7 @@ hsa_signal_value_t InterruptSignal::WaitRelaxed(hsa_signal_condition_t condition
   const timer::fast_clock::duration kMaxElapsed = std::chrono::microseconds(200);
   const uint32_t &signal_abort_timeout =
     core::Runtime::runtime_singleton_->flag().signal_abort_timeout();
+  const uint32_t max_sig_sec = SignalRecoveryEnv::MaxSignalWaitSec();
 
   while (true) {
     if (!IsValid()) return 0;
@@ -169,6 +171,17 @@ hsa_signal_value_t InterruptSignal::WaitRelaxed(hsa_signal_condition_t condition
     }
 
     timer::CheckAbortTimeout(start_time, signal_abort_timeout);
+
+    if (ShouldForceUnblockSignalWait(start_time, max_sig_sec)) {
+      if (!CheckSignalCondition(value, condition, compare_value)) {
+        int64_t forced =
+            RecoveryValueToSatisfyWait(condition, compare_value, value);
+        atomic::Store(&signal_.value, forced, std::memory_order_relaxed);
+        value = forced;
+      }
+      SetEvent();
+      return value;
+    }
 
     if (wait_hint == HSA_WAIT_STATE_ACTIVE) {
       if (g_use_mwaitx) {
