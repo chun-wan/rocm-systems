@@ -257,7 +257,57 @@ hsa_status_t BlitSdma<useGCR>::Initialize(const core::Agent& agent, bool use_xgm
 
   max_single_linear_copy_size_ = linear_copy_size_override;
 
+  init_use_xgmi_ = use_xgmi;
+  init_rec_eng_ = rec_eng;
+  init_linear_copy_size_override_ = linear_copy_size_override;
+
   cleanupOnException.Dismiss();
+  return HSA_STATUS_SUCCESS;
+}
+
+template <bool useGCR>
+hsa_status_t BlitSdma<useGCR>::ResetQueue(const core::Agent& agent) {
+  std::unique_lock<std::mutex> lock(reservation_lock_);
+
+  if (queue_resource_.QueueId != 0) {
+    auto err = agent_->driver().DestroyQueue(queue_resource_.QueueId);
+    if (err != HSA_STATUS_SUCCESS) return HSA_STATUS_ERROR;
+    std::memset(&queue_resource_, 0, sizeof(queue_resource_));
+  }
+
+  if (queue_start_addr_ != nullptr) {
+    std::memset(queue_start_addr_, 0, kQueueSize);
+  }
+
+  bytes_queued_ = 0;
+  bytes_written_.fill(0, static_cast<uint32_t>(kQueueSize), 0);
+  cached_reserve_index_ = 0;
+  cached_commit_index_ = 0;
+  parity_ = false;
+
+  const HSA_QUEUE_TYPE kQueueType_ = init_rec_eng_ >= 0 ? HSA_QUEUE_SDMA_BY_ENG_ID
+                                                         : (init_use_xgmi_ ? HSA_QUEUE_SDMA_XGMI
+                                                                           : HSA_QUEUE_SDMA);
+  if (agent_->driver().CreateQueue(agent_->node_id(), kQueueType_, 100, HSA::HSA_AMD_QUEUE_PRIORITY_MAXIMUM,
+                                    init_rec_eng_, queue_start_addr_, kQueueSize, nullptr,
+                                    queue_resource_) != HSA_STATUS_SUCCESS) {
+    return HSA_STATUS_ERROR_OUT_OF_RESOURCES;
+  }
+
+  queue_wptr_ = reinterpret_cast<volatile uint64_t*>(queue_resource_.Queue_write_ptr);
+  queue_rptr_ = reinterpret_cast<volatile uint64_t*>(queue_resource_.Queue_read_ptr);
+  queue_doorbell_ = reinterpret_cast<volatile uint64_t*>(queue_resource_.Queue_DoorBell);
+
+  cached_reserve_index_ = *queue_wptr_;
+  cached_commit_index_ = cached_reserve_index_;
+
+  max_single_linear_copy_size_ = init_linear_copy_size_override_;
+
+  engine_stuck_.store(false, std::memory_order_release);
+  stall_count_.store(0, std::memory_order_relaxed);
+  last_pending_probe_.store(0, std::memory_order_relaxed);
+
+  (void)agent;
   return HSA_STATUS_SUCCESS;
 }
 

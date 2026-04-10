@@ -2791,8 +2791,60 @@ lazy_ptr<core::Blit>& GpuAgent::GetPcieBlit(const core::Agent& dst_agent,
   bool is_h2d = (src_agent.device_type() == core::Agent::kAmdCpuDevice &&
                  dst_agent.device_type() == core::Agent::kAmdGpuDevice);
 
-  lazy_ptr<core::Blit>& blit = GetBlitObject(is_h2d ? BlitHostToDev : BlitDevToHost);
-  return blit;
+  const auto& flag = core::Runtime::runtime_singleton_->flag();
+
+  // Round-robin H2D/D2H across SDMA engines when XGMI engines exist (v10 stack).
+  if (properties_.NumSdmaXgmiEngines > 0 && !flag.disable_sdma_roundrobin()) {
+    static std::atomic<uint32_t> rr_h2d{0};
+    static std::atomic<uint32_t> rr_d2h{0};
+    uint32_t max_eng = flag.sdma_d2h_engine_count();
+    uint32_t total = 1 + properties_.NumSdmaXgmiEngines;
+    if (max_eng == 0 || max_eng > total) max_eng = total;
+
+    if (is_h2d) {
+      uint32_t pick = rr_h2d.fetch_add(1, std::memory_order_relaxed) % max_eng;
+      return (pick == 0) ? GetBlitObject(BlitHostToDev)
+                          : GetBlitObject(DefaultBlitCount + (pick - 1));
+    }
+    uint32_t pick = rr_d2h.fetch_add(1, std::memory_order_relaxed) % max_eng;
+    return (pick == 0) ? GetBlitObject(BlitDevToHost)
+                       : GetBlitObject(DefaultBlitCount + (pick - 1));
+  }
+
+  uint32_t default_eng = is_h2d ? BlitHostToDev : BlitDevToHost;
+
+  // SDMA health probe: detect stuck D2H queue (optional, default OFF).
+  if (!is_h2d && flag.enable_sdma_health_probe()) {
+    const size_t threshold = flag.sdma_health_probe_threshold();
+    const uint32_t stall_limit = flag.sdma_health_stall_count();
+    if (sdma_blit_used_mask_ & (1 << BlitDevToHost)) {
+      auto* sdma = static_cast<AMD::BlitSdmaBase*>((*blits_[BlitDevToHost]).get());
+      uint64_t pending = sdma->PendingBytes();
+      uint64_t prev = sdma->last_pending_probe_.load(std::memory_order_relaxed);
+      sdma->last_pending_probe_.store(pending, std::memory_order_relaxed);
+      if (pending > threshold && pending >= prev && prev > 0) {
+        uint32_t cnt = sdma->stall_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (cnt >= stall_limit)
+          sdma->engine_stuck_.store(true, std::memory_order_release);
+      } else {
+        sdma->stall_count_.store(0, std::memory_order_relaxed);
+        if (pending == 0 && sdma->engine_stuck_.load(std::memory_order_relaxed))
+          sdma->engine_stuck_.store(false, std::memory_order_release);
+      }
+    }
+  }
+
+  return GetBlitObject(default_eng);
+}
+
+bool GpuAgent::IsSdmaD2HStuck() const {
+  if (!(sdma_blit_used_mask_ & (1 << BlitDevToHost))) return false;
+  return blits_[BlitDevToHost]->IsStuck();
+}
+
+hsa_status_t GpuAgent::ResetSdmaD2HQueue() {
+  if (!(sdma_blit_used_mask_ & (1 << BlitDevToHost))) return HSA_STATUS_ERROR;
+  return blits_[BlitDevToHost]->ResetQueue(*this);
 }
 
 lazy_ptr<core::Blit>& GpuAgent::GetBlitObject(const core::Agent& dst_agent,

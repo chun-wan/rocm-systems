@@ -785,6 +785,12 @@ class GpuAgent : public GpuAgentInt {
   // across PCIe links (H2D or D2H) or is within same device D2D
   lazy_ptr<core::Blit>& GetPcieBlit(const core::Agent& dst_agent, const core::Agent& src_agent);
 
+  /// True if optional SDMA health probe marked the default D2H engine stuck.
+  bool IsSdmaD2HStuck() const;
+
+  /// Recreate the D2H SDMA queue after a stuck condition (paired with IsSdmaD2HStuck).
+  hsa_status_t ResetSdmaD2HQueue();
+
   // Bind the Blit object that will drive the copy operation
   lazy_ptr<core::Blit>& GetBlitObject(const core::Agent& dst_agent, const core::Agent& src_agent,
                                       const size_t size);

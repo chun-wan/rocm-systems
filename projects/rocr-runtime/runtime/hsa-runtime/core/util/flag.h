@@ -323,6 +323,22 @@ class Flag {
     // hsa_amd_counted_queue_acquire API. If not set, default queue size is set to 16384.
     var = os::GetEnvVar("HSA_COUNTED_QUEUE_SIZE");
     counted_queue_size_ = var.empty() ? DEFAULT_COUNTED_QUEUE_SIZE : atoi(var.c_str());
+
+    // Optional SDMA D2H health probe + PCIe SDMA round-robin.
+    var = os::GetEnvVar("HSA_ENABLE_SDMA_HEALTH_PROBE");
+    enable_sdma_health_probe_ = (var == "1") ? true : false;
+
+    var = os::GetEnvVar("HSA_SDMA_HEALTH_PROBE_THRESHOLD");
+    sdma_health_probe_threshold_ = var.empty() ? 65536 : static_cast<size_t>(atoi(var.c_str()));
+
+    var = os::GetEnvVar("HSA_SDMA_HEALTH_STALL_COUNT");
+    sdma_health_stall_count_ = var.empty() ? 3 : static_cast<uint32_t>(atoi(var.c_str()));
+
+    var = os::GetEnvVar("HSA_DISABLE_SDMA_ROUNDROBIN");
+    disable_sdma_roundrobin_ = (var == "1") ? true : false;
+
+    var = os::GetEnvVar("HSA_SDMA_D2H_ENGINE_COUNT");
+    sdma_d2h_engine_count_ = var.empty() ? 0 : static_cast<uint32_t>(atoi(var.c_str()));
   }
 
   void parse_masks(uint32_t maxGpu, uint32_t maxCU) {
@@ -447,6 +463,16 @@ class Flag {
 
   size_t counted_queue_size() const { return counted_queue_size_; }
 
+  bool enable_sdma_health_probe() const { return enable_sdma_health_probe_; }
+
+  size_t sdma_health_probe_threshold() const { return sdma_health_probe_threshold_; }
+
+  uint32_t sdma_health_stall_count() const { return sdma_health_stall_count_; }
+
+  bool disable_sdma_roundrobin() const { return disable_sdma_roundrobin_; }
+
+  uint32_t sdma_d2h_engine_count() const { return sdma_d2h_engine_count_; }
+
   bool dev_mem_queue_buf() const { return dev_mem_queue_buf_; }
 
   uint32_t signal_abort_timeout() const { return signal_abort_timeout_; }
@@ -530,6 +556,11 @@ class Flag {
   bool enable_mwaitx_;
   bool enable_ipc_mode_legacy_;
   bool wait_any_;
+  bool enable_sdma_health_probe_ = false;
+  size_t sdma_health_probe_threshold_ = 65536;
+  uint32_t sdma_health_stall_count_ = 3;
+  bool disable_sdma_roundrobin_ = false;
+  uint32_t sdma_d2h_engine_count_ = 0;
   bool dev_mem_queue_buf_;
   uint32_t signal_abort_timeout_;
   int  async_events_thread_priority_;

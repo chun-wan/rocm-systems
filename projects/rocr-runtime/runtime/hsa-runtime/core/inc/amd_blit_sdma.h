@@ -43,6 +43,7 @@
 #ifndef HSA_RUNTIME_CORE_INC_AMD_BLIT_SDMA_H_
 #define HSA_RUNTIME_CORE_INC_AMD_BLIT_SDMA_H_
 
+#include <atomic>
 #include <mutex>
 #include <stdint.h>
 #include <vector>
@@ -63,6 +64,16 @@ class BlitSdmaBase : public core::Blit {
   static const size_t kMaxSingleCopySize;
   static const size_t kMaxSingleFillSize;
   virtual bool isSDMA() const override { return true; }
+
+  /// SDMA D2H health probe state (v10 / optional HSA_ENABLE_SDMA_HEALTH_PROBE).
+  std::atomic<bool> engine_stuck_{false};
+  std::atomic<uint64_t> last_pending_probe_{0};
+  std::atomic<uint32_t> stall_count_{0};
+
+  bool IsStuck() const override { return engine_stuck_.load(std::memory_order_acquire); }
+
+  virtual hsa_status_t ResetQueue(const core::Agent& agent) override = 0;
+
   virtual hsa_status_t Initialize(const core::Agent& agent, bool use_xgmi,
                                   size_t linear_copy_size_override, int rec_engine) = 0;
   virtual hsa_status_t SubmitCopyRectCommand(const hsa_pitched_ptr_t* dst,
@@ -116,6 +127,8 @@ template <bool useGCR> class BlitSdma : public BlitSdmaBase {
   BlitSdma();
 
   virtual ~BlitSdma() override;
+
+  hsa_status_t ResetQueue(const core::Agent& agent) override;
 
   /// @brief Initialize a User Mode SDMA Queue object. Input parameters specify
   /// properties of queue being created.
@@ -302,6 +315,11 @@ template <bool useGCR> class BlitSdma : public BlitSdmaBase {
 
   // Agent object owning the SDMA engine.
   GpuAgent* agent_;
+
+  // Saved init params for ResetQueue (SDMA health / recovery path).
+  bool init_use_xgmi_{false};
+  size_t init_linear_copy_size_override_{0};
+  int init_rec_eng_{0};
 
   /// Base address of the Queue buffer at construction time.
   char* queue_start_addr_;

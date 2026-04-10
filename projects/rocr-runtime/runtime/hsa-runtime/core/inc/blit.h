@@ -119,6 +119,15 @@ class Blit {
 
   virtual void GangLeader(bool gang_leader) = 0;
   virtual bool GangLeader() const { return false; };
+
+  /// @brief True when SDMA health probe marked this engine stuck (opt-in path).
+  virtual bool IsStuck() const { return false; }
+
+  /// @brief Recreate the underlying SDMA queue after a stuck condition. Default: unsupported.
+  virtual hsa_status_t ResetQueue(const core::Agent& agent) {
+    (void)agent;
+    return HSA_STATUS_ERROR;
+  }
 };
 }  // namespace core
 }  // namespace rocr

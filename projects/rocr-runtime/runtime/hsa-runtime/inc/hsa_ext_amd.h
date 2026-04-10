@@ -4227,6 +4227,18 @@ hsa_status_t HSA_API hsa_amd_counted_queue_acquire(hsa_agent_t agent, hsa_queue_
 hsa_status_t HSA_API hsa_amd_counted_queue_release(hsa_queue_t* queue);
 
 /**
+ * @brief Reports whether the optional SDMA health probe considers the default
+ * D2H SDMA engine stuck (requires HSA_ENABLE_SDMA_HEALTH_PROBE=1).
+ */
+hsa_status_t HSA_API hsa_amd_sdma_engine_is_stuck(hsa_agent_t agent, bool* is_stuck);
+
+/**
+ * @brief Recreates the D2H SDMA queue after a stuck condition (see
+ * hsa_amd_sdma_engine_is_stuck).
+ */
+hsa_status_t HSA_API hsa_amd_sdma_queue_reset(hsa_agent_t agent);
+
+/**
  * @brief logging types
  */
 typedef enum hsa_amd_log_flag_s {

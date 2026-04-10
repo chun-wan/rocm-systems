@@ -1892,6 +1892,34 @@ hsa_status_t HSA_API hsa_amd_svm_discard_batch_async(void** ptrs, size_t* sizes,
   CATCH;                                       
 }
 
+hsa_status_t HSA_API hsa_amd_sdma_engine_is_stuck(hsa_agent_t agent_handle, bool* is_stuck) {
+  TRY;
+  IS_OPEN();
+  if (!is_stuck) return HSA_STATUS_ERROR_INVALID_ARGUMENT;
+  core::Agent* agent = core::Agent::Convert(agent_handle);
+  IS_VALID(agent);
+  if (agent->device_type() != core::Agent::kAmdGpuDevice) {
+    return HSA_STATUS_ERROR_INVALID_AGENT;
+  }
+  auto* gpu = static_cast<AMD::GpuAgent*>(agent);
+  *is_stuck = gpu->IsSdmaD2HStuck();
+  return HSA_STATUS_SUCCESS;
+  CATCH;
+}
+
+hsa_status_t HSA_API hsa_amd_sdma_queue_reset(hsa_agent_t agent_handle) {
+  TRY;
+  IS_OPEN();
+  core::Agent* agent = core::Agent::Convert(agent_handle);
+  IS_VALID(agent);
+  if (agent->device_type() != core::Agent::kAmdGpuDevice) {
+    return HSA_STATUS_ERROR_INVALID_AGENT;
+  }
+  auto* gpu = static_cast<AMD::GpuAgent*>(agent);
+  return gpu->ResetSdmaD2HQueue();
+  CATCH;
+}
+
 hsa_status_t hsa_amd_enable_logging(uint8_t* flags, void *file) {
   TRY;
   return core::Runtime::runtime_singleton_->EnableLogging(flags, file);
